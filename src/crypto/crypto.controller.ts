@@ -142,4 +142,34 @@ export class CryptoController {
   ) {
     return this.cryptoService.findGoldenCrossCoins(symbols, candlestickData);
   }
+
+  @Get('assets')
+  async getAssets() {
+    const results = await this.cryptoService.filterValuableAssets();
+    return results;
+  }
+
+  @Get('orderInfo')
+  async getOrderInfo(@Query('orderCurrency') orderCurrency: string) {
+    const results = await this.cryptoService.orderInfo(orderCurrency);
+    return results;
+  }
+
+  @Get('tradeHistory')
+  async getTradeHistory(
+    @Query('orderCurrency') orderCurrency: string,
+    @Query('paymentCurrency') paymentCurrency: string,
+  ) {
+    const results = await this.cryptoService.tradeHistory(
+      orderCurrency,
+      paymentCurrency,
+    );
+    return results;
+  }
+
+  @Get('profit')
+  async profit() {
+    const results = await this.cryptoService.calculateProfit();
+    return results;
+  }
 }

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import axios from 'axios';
 
-import { CoinInfo, DataObject } from './crypto.types.js';
+import { CoinInfo, DataObject, Price } from './crypto.types.js';
 import { XCoinAPI } from 'src/lib/XCoinAPI';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
@@ -371,6 +371,43 @@ ${fallingRedCandlesCoins.map(this.formatTradingViewLink).join(', ')}
     } catch (error) {
       console.error('error: ', error);
     }
+  }
+
+  async filterValuableAssets(): Promise<{
+    [key: string]: {
+      quantity: number;
+      currentPrice: number;
+      totalValue: number;
+    };
+  }> {
+    const balances = await this.balance();
+    const valuableAssets = {};
+
+    for (const [key, value] of Object.entries(balances)) {
+      if (!key.startsWith('total_')) continue;
+      const ticker = key.replace('total_', '').toUpperCase();
+      const prices = await this.currentPriceInfo(ticker);
+
+      if (!prices || !prices.data) {
+        console.error('Failed to fetch current price:', prices);
+        continue;
+      }
+
+      const quantity = parseFloat(value);
+      const currentPrice = parseFloat(prices.data.closing_price);
+      const totalValue = quantity * currentPrice;
+
+      if (totalValue >= 1000) {
+        // 1천원 이상인 자산만 추출
+        valuableAssets[ticker] = {
+          quantity,
+          currentPrice,
+          totalValue,
+        };
+      }
+    }
+
+    return valuableAssets;
   }
 
   async recentTransactionsInfo(orderCurrency = 'BTC') {
@@ -876,5 +913,69 @@ ${fallingRedCandlesCoins.map(this.formatTradingViewLink).join(', ')}
       }
       return sum / period;
     });
+  }
+
+  async calculateProfit(): Promise<{
+    [key: string]: {
+      averageBuyPrice: number;
+      currentPrice: number;
+      profit: string;
+      quantity: number;
+      totalValue: number;
+    };
+  }> {
+    const assets = await this.filterValuableAssets();
+    const results = {};
+
+    for (const [key, value] of Object.entries(assets)) {
+      const averageBuyPrice = await this.getAverageBuyPrice(key); // 평균 매수가 계산 메소드
+
+      if (averageBuyPrice === 0) {
+        console.error('Failed to calculate average buy price:', key);
+        continue;
+      }
+
+      const prices: Price = await this.currentPriceInfo(key);
+
+      if (prices.status !== '0000' || !prices.data) {
+        console.error('Failed to fetch current price:', prices);
+        continue;
+      }
+
+      const currentPrice = parseFloat(prices.data.closing_price);
+
+      const profit = ((currentPrice - averageBuyPrice) / averageBuyPrice) * 100;
+      results[key] = {
+        averageBuyPrice,
+        currentPrice,
+        profit: profit.toFixed(2) + '%',
+        ...value,
+      };
+    }
+
+    return results;
+  }
+
+  // TODO: 오차가 있음. 수정 필요
+  async getAverageBuyPrice(symbol: string): Promise<number> {
+    // 매수 거래 내역 조회
+    const response = await this.tradeHistory(symbol, 'KRW');
+    if (!response || response.status !== '0000' || !response.data) {
+      return 0;
+    }
+
+    // 매수 완료된 거래만 필터링
+    const buys = response.data.filter((item) => item.search === '1');
+    let totalSpent = 0;
+    let totalUnits = 0;
+
+    // 매수 거래의 총 지출 금액과 총 매수 수량 계산
+    for (const buy of buys) {
+      totalSpent += parseFloat(buy.price) * parseFloat(buy.units);
+      totalUnits += parseFloat(buy.units);
+    }
+
+    // 평균 매수가 계산
+    return totalUnits > 0 ? totalSpent / totalUnits : 0;
   }
 }

@@ -3,14 +3,268 @@ import axios from 'axios';
 
 import { CoinInfo, DataObject } from './crypto.types.js';
 import { XCoinAPI } from 'src/lib/XCoinAPI';
+import { HttpService } from '@nestjs/axios';
+import { lastValueFrom } from 'rxjs';
 
 const DEFAULT_TICKER = 'ALL_KRW';
+const TRADINGVIEW_BASE_URL = 'https://kr.tradingview.com/chart';
 
 @Injectable()
 export class CryptoService {
   private readonly api_key = process.env.BITHUMB_CON_KEY;
   private readonly api_secret = process.env.BITHUMB_SEC_KEY;
   private readonly xcoinAPI = new XCoinAPI(this.api_key, this.api_secret);
+
+  constructor(private httpService: HttpService) {}
+
+  formatTradingViewLink(coin: string) {
+    return `[${coin}](${TRADINGVIEW_BASE_URL}/m0kspXtg/?symbol=BITHUMB%3A${coin}KRW)`;
+  }
+
+  async sendTelegramMessage(message: string): Promise<void> {
+    const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_BOT_ID;
+
+    const url = `https://api.telegram.org/bot${telegramBotToken}/sendMessage`;
+    try {
+      await lastValueFrom(
+        this.httpService.post(url, {
+          chat_id: chatId,
+          text: message,
+          parse_mode: 'Markdown',
+        }),
+      );
+    } catch (error) {
+      console.error('Telegram send error:', error);
+    }
+  }
+
+  async generateShortTermAnalysisMessage(): Promise<string> {
+    console.log('Starting short-term analysis...');
+
+    const coinsData = await this.currentPriceInfo('ALL_KRW');
+    const topValueCoins = await this.filterCoinsByValue(coinsData, 100);
+    const topRiseCoins = await this.filterCoinsByRiseRate(coinsData, 100);
+
+    const [oneMinuteCandlestickData, tenMinuteCandlestickData] =
+      await Promise.all([
+        this.fetchAllCandlestickData(topValueCoins, '1m'),
+        this.fetchAllCandlestickData(topValueCoins, '10m'),
+      ]);
+
+    const commonCoins = await this.findCommonCoins(
+      topValueCoins,
+      topRiseCoins,
+      'rise',
+    );
+    const oneMinuteRisingCoins = await this.filterContinuousRisingCoins(
+      topValueCoins,
+      oneMinuteCandlestickData,
+      2,
+    );
+    const oneMinuteGreenCandlesCoins = await this.filterContinuousGreenCandles(
+      topValueCoins,
+      oneMinuteCandlestickData,
+      2,
+    );
+    const oneMinuteRisingAndGreenCandlesCoins =
+      oneMinuteGreenCandlesCoins.filter((coin) =>
+        oneMinuteRisingCoins.includes(coin),
+      );
+
+    const risingCoins = await this.filterContinuousRisingCoins(
+      topValueCoins,
+      tenMinuteCandlestickData,
+      2,
+    );
+    const greenCandlesCoins = await this.filterContinuousGreenCandles(
+      topValueCoins,
+      tenMinuteCandlestickData,
+      2,
+    );
+    const risingGreenCandlesCoins = greenCandlesCoins.filter((coin) =>
+      risingCoins.includes(coin),
+    );
+
+    const fallingCoins = await this.filterContinuousFallingCoins(
+      topValueCoins,
+      tenMinuteCandlestickData,
+      2,
+    );
+
+    const redCandlesCoins = await this.filterContinuousRedCandles(
+      topValueCoins,
+      tenMinuteCandlestickData,
+      2,
+    );
+
+    const fallingRedCandlesCoins = redCandlesCoins.filter((coin) =>
+      fallingCoins.includes(coin),
+    );
+
+    const volumeSpikeCoins = await this.filterVolumeSpikeCoins(
+      topValueCoins,
+      tenMinuteCandlestickData,
+      1.5,
+    );
+    const oneMinuteGoldenCrossCoins = await this.findGoldenCrossCoins(
+      topValueCoins,
+      oneMinuteCandlestickData,
+    );
+    const tenMinuteGoldenCrossCoinsInTwo = await this.findGoldenCrossCoins(
+      topValueCoins,
+      tenMinuteCandlestickData,
+      2,
+      7,
+      15,
+    );
+
+    const message = `
+🐅 Sustainability - Short Term
+🐅
+🐅
+🐅
+🐅
+
+🟢 *1분봉 지속 상승 + 지속 양봉* 🟢
+${oneMinuteRisingAndGreenCandlesCoins
+  .map(this.formatTradingViewLink)
+  .join(', ')}
+  
+🟢 *10분봉 지속 상승 + 지속 양봉* 🟢
+${risingGreenCandlesCoins.map(this.formatTradingViewLink).join(', ')}
+
+🔴 *10분봉 지속 하락 + 지속 음봉* 🔴
+${fallingRedCandlesCoins.map(this.formatTradingViewLink).join(', ')}
+
+🌟 *1m Golden Cross* 🌟
+${oneMinuteGoldenCrossCoins.map(this.formatTradingViewLink).join(', ')}
+
+🌟 *10m Golden Cross* 🌟
+${tenMinuteGoldenCrossCoinsInTwo.map(this.formatTradingViewLink).join(', ')}
+
+📈 *지속 상승* 📈
+${risingCoins.map(this.formatTradingViewLink).join(', ')}
+
+📊 *지속 양봉* 📊
+${greenCandlesCoins.map(this.formatTradingViewLink).join(', ')}
+
+💹 *거래량 급증* 💹
+${volumeSpikeCoins.map(this.formatTradingViewLink).join(', ')}
+
+🔥 *거래량 + 상승률* 🔥
+${commonCoins.slice(0, 20).map(this.formatTradingViewLink).join(', ')}
+
+🐅
+🐅
+🐅
+🐅
+🐅    
+`;
+
+    return message;
+  }
+
+  async generateLongTermAnalysisMessage(): Promise<string> {
+    console.log('Starting long-term analysis...');
+    const coinsData = await this.currentPriceInfo('ALL_KRW');
+    const topValueCoins = await this.filterCoinsByValue(coinsData, 100);
+
+    const oneHourCandlestickData = await this.fetchAllCandlestickData(
+      topValueCoins,
+      '1h',
+    );
+
+    const oneHourGoldenCrossCoinsInTwo = await this.findGoldenCrossCoins(
+      topValueCoins,
+      oneHourCandlestickData,
+      2,
+      7,
+      15,
+    );
+
+    const oneHourGoldenCrossCoinsInFive = await this.findGoldenCrossCoins(
+      topValueCoins,
+      oneHourCandlestickData,
+      5,
+      7,
+      15,
+    );
+
+    const risingCoins = await this.filterContinuousRisingCoins(
+      topValueCoins,
+      oneHourCandlestickData,
+      2,
+    );
+    const greenCandlesCoins = await this.filterContinuousGreenCandles(
+      topValueCoins,
+      oneHourCandlestickData,
+      2,
+    );
+    const risingGreenCandlesCoins = greenCandlesCoins.filter((coin) =>
+      risingCoins.includes(coin),
+    );
+
+    const fallingCoins = await this.filterContinuousFallingCoins(
+      topValueCoins,
+      oneHourCandlestickData,
+      2,
+    );
+    const redCandlesCoins = await this.filterContinuousRedCandles(
+      topValueCoins,
+      oneHourCandlestickData,
+      2,
+    );
+    const fallingRedCandlesCoins = redCandlesCoins.filter((coin) =>
+      fallingCoins.includes(coin),
+    );
+
+    const message = `
+🐅 Sustainability - Long Term
+🐅
+🐅
+🐅
+🐅
+
+🌟 *1h Golden Cross in Two* 🌟
+${oneHourGoldenCrossCoinsInTwo.map(this.formatTradingViewLink).join(', ')}
+
+🌟 *1h Golden Cross in Five* 🌟
+${oneHourGoldenCrossCoinsInFive
+  // Remove coins that are already in the 2-hour golden cross list
+  .filter((coin) => !oneHourGoldenCrossCoinsInTwo.includes(coin))
+  .map(this.formatTradingViewLink)
+  .join(', ')}
+
+🟢 *지속 상승 + 지속 양봉* 🟢
+${risingGreenCandlesCoins.map(this.formatTradingViewLink).join(', ')}
+
+🔴 *지속 하락 + 지속 음봉* 🔴
+${fallingRedCandlesCoins.map(this.formatTradingViewLink).join(', ')}
+
+🐅
+🐅
+🐅
+🐅
+🐅
+`;
+
+    return message;
+  }
+
+  async performAnalysisAndNotify(
+    type: 'long-term' | 'short-term',
+  ): Promise<void> {
+    console.log('Starting analysis... Type:', type);
+    const message =
+      type === 'long-term'
+        ? await this.generateLongTermAnalysisMessage()
+        : await this.generateShortTermAnalysisMessage();
+
+    console.log('Generated message: ', !!message);
+    await this.sendTelegramMessage(message);
+    console.log('Message sent to Telegram successfully.');
+  }
 
   async currentPriceInfo(ticker = DEFAULT_TICKER) {
     const options = {
@@ -348,7 +602,6 @@ export class CryptoService {
     try {
       for (const symbol of symbols) {
         const candleData = candlestickData[symbol];
-        console.log('log=> candleData: ', candleData);
 
         if (
           candleData.status === '0000' &&
@@ -376,7 +629,6 @@ export class CryptoService {
       risingCoins = ['error_filterContinuousRisingCoins'];
     }
 
-    console.log('server => risingCoins: ', risingCoins);
     return risingCoins;
   }
 
@@ -416,7 +668,6 @@ export class CryptoService {
       fallingCoins = ['error_filterContinuousFallingCoins'];
     }
 
-    console.log('server => fallingCoins: ', fallingCoins);
     return fallingCoins;
   }
 
@@ -451,7 +702,6 @@ export class CryptoService {
       greenCandlesCoins = ['error_filterContinuousGreenCandles'];
     }
 
-    console.log('server => greenCandlesCoins: ', greenCandlesCoins);
     return greenCandlesCoins;
   }
 
@@ -486,7 +736,6 @@ export class CryptoService {
       redCandlesCoins = ['error_filterContinuousRedCandles'];
     }
 
-    console.log('server => redCandlesCoins: ', redCandlesCoins);
     return redCandlesCoins;
   }
 
@@ -534,7 +783,6 @@ export class CryptoService {
       volumeSpikeCoins = ['error_filterVolumeSpikeCoins'];
     }
 
-    console.log('server => volumeSpikeCoins: ', volumeSpikeCoins);
     return volumeSpikeCoins;
   }
 
@@ -585,7 +833,6 @@ export class CryptoService {
       goldenCrossCoins = ['error_findGoldenCrossCoins'];
     }
 
-    console.log('server => goldenCrossCoins: ', goldenCrossCoins);
     return goldenCrossCoins; // 골든크로스가 발생한 코인 리스트 반환
   }
 

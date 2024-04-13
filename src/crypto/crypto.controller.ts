@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { CryptoService } from './crypto.service';
 import { ChartIntervals, CoinInfo } from './crypto.types';
 import { BithumbWebSocketService } from 'src/bithumb-web-socket/bithumb-web-socket.service';
@@ -12,37 +12,12 @@ export class CryptoController {
     console.log('CryptoController created');
   }
 
-  // coinsData
-  @Get('currentPrice/:ticker')
-  getCurrentPrice(@Param('ticker') ticker: string) {
-    return this.cryptoService.currentPriceInfo(ticker);
-  }
-
-  // coins by value
-  @Get('coinsByValue')
-  getCoinsByValue(
-    @Param('coinsData') coinsData: CoinInfo,
-    @Param('limit') limit: number,
-  ) {
-    return this.cryptoService.filterCoinsByValue(coinsData, limit);
-  }
-
-  // coins by rise
-  @Get('coinsByRise')
-  getCoinsByRise(
-    @Param('coinsData') coinsData: CoinInfo,
-    @Param('limit') limit: number,
-  ) {
-    return this.cryptoService.filterCoinsByRiseRate(coinsData, limit);
-  }
-
-  // fetch all coins candlestick
-  @Get('allCoinsCandlestick')
-  getAllCoinsCandlestick(
-    @Param('symbols') symbols: string[],
-    @Param('chartIntervals') chartIntervals: ChartIntervals,
-  ) {
-    return this.cryptoService.fetchAllCandlestickData(symbols, chartIntervals);
+  @Get('analyze')
+  async triggerAnalysis(
+    @Query('type') type: 'long-term' | 'short-term',
+  ): Promise<string> {
+    await this.cryptoService.performAnalysisAndNotify(type);
+    return `Type ${type} analysis initiated and message sent to Telegram.`;
   }
 
   @Post('wsconnect')
@@ -55,5 +30,116 @@ export class CryptoController {
   closeWebSocket() {
     this.bithumbWebSocketService.disconnect();
     return { message: 'Closing Bithumb WebSocket...' };
+  }
+
+  @Get('currentPrice/:ticker')
+  getCurrentPrice(@Param('ticker') ticker: string) {
+    return this.cryptoService.currentPriceInfo(ticker);
+  }
+
+  @Get('coinsByValue')
+  getCoinsByValue(
+    @Param('coinsData') coinsData: CoinInfo,
+    @Param('limit') limit: number,
+  ) {
+    return this.cryptoService.filterCoinsByValue(coinsData, limit);
+  }
+
+  @Get('coinsByRise')
+  getCoinsByRise(
+    @Param('coinsData') coinsData: CoinInfo,
+    @Param('limit') limit: number,
+  ) {
+    return this.cryptoService.filterCoinsByRiseRate(coinsData, limit);
+  }
+
+  @Get('allCoinsCandlestick')
+  getAllCoinsCandlestick(
+    @Param('symbols') symbols: string[],
+    @Param('chartIntervals') chartIntervals: ChartIntervals,
+  ) {
+    return this.cryptoService.fetchAllCandlestickData(symbols, chartIntervals);
+  }
+
+  @Get('commonCoins')
+  getCommonCoins(
+    @Param('symbols1') symbols1: string[],
+    @Param('symbols2') symbols2: string[],
+    @Param('filter') filter: 'rise' | 'value' = 'rise',
+  ) {
+    return this.cryptoService.findCommonCoins(symbols1, symbols2, filter);
+  }
+
+  @Get('continuousRisingCoins')
+  getContinuousRisingCoins(
+    @Param('symbols') symbols: string[],
+    @Param('candlestickData') candlestickData: any,
+    @Param('minRisingCandles') minRisingCandles: number,
+  ) {
+    return this.cryptoService.filterContinuousRisingCoins(
+      symbols,
+      candlestickData,
+      minRisingCandles,
+    );
+  }
+
+  @Get('continuousGreenCandlesCoins')
+  getContinuousGreenCandlesCoins(
+    @Param('symbols') symbols: string[],
+    @Param('candlestickData') candlestickData: any,
+    @Param('minGreenCandles') minGreenCandles: number,
+  ) {
+    return this.cryptoService.filterContinuousGreenCandles(
+      symbols,
+      candlestickData,
+      minGreenCandles,
+    );
+  }
+
+  @Get('continuousFallingCoins')
+  getContinuousFallingCoins(
+    @Param('symbols') symbols: string[],
+    @Param('candlestickData') candlestickData: any,
+    @Param('minFallingCandles') minFallingCandles: number,
+  ) {
+    return this.cryptoService.filterContinuousFallingCoins(
+      symbols,
+      candlestickData,
+      minFallingCandles,
+    );
+  }
+
+  @Get('continuousRedCandlesCoins')
+  getContinuousRedCandlesCoins(
+    @Param('symbols') symbols: string[],
+    @Param('candlestickData') candlestickData: any,
+    @Param('minRedCandles') minRedCandles: number,
+  ) {
+    return this.cryptoService.filterContinuousRedCandles(
+      symbols,
+      candlestickData,
+      minRedCandles,
+    );
+  }
+
+  @Get('volumeSpikeCoins')
+  getVolumeSpikeCoins(
+    @Param('symbols') symbols: string[],
+    @Param('candlestickData') candlestickData: any,
+    @Param('volumeIncreaseFactor') volumeIncreaseFactor: number,
+  ) {
+    return this.cryptoService.filterVolumeSpikeCoins(
+      symbols,
+      candlestickData,
+      volumeIncreaseFactor,
+    );
+  }
+
+  @Get('goldenCrossCoins')
+  getGoldenCrossCoins(
+    @Param('symbols') symbols: string[],
+    @Param('candlestickData') candlestickData: any,
+  ) {
+    return this.cryptoService.findGoldenCrossCoins(symbols, candlestickData);
   }
 }

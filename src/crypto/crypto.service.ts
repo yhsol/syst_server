@@ -5,6 +5,7 @@ import { CoinInfo, DataObject, Price } from './crypto.types.js';
 import { XCoinAPI } from 'src/lib/XCoinAPI';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
+import lodash from 'lodash';
 
 const DEFAULT_TICKER = 'ALL_KRW';
 const TRADINGVIEW_BASE_URL = 'https://kr.tradingview.com/chart';
@@ -119,6 +120,24 @@ export class CryptoService {
       15,
     );
 
+    const bullishEngulfingCoins = await this.filterBullishEngulfing(
+      topValueCoins,
+      tenMinuteCandlestickData,
+    );
+
+    const coinsToSave = lodash.uniq([
+      ...oneMinuteRisingAndGreenCandlesCoins,
+      ...risingGreenCandlesCoins,
+      ...fallingRedCandlesCoins,
+      ...oneMinuteGoldenCrossCoins,
+      ...tenMinuteGoldenCrossCoinsInTwo,
+      ...risingCoins,
+      ...greenCandlesCoins,
+      ...volumeSpikeCoins,
+      ...commonCoins,
+      ...bullishEngulfingCoins,
+    ]);
+
     const message = `
 🐅 Sustainability - Short Term
 🐅
@@ -154,6 +173,9 @@ ${volumeSpikeCoins.map(this.formatTradingViewLink).join(', ')}
 
 🔥 *거래량 + 상승률* 🔥
 ${commonCoins.slice(0, 20).map(this.formatTradingViewLink).join(', ')}
+
+🕯️ *Bullish Engulfing* 🕯️
+${bullishEngulfingCoins.map(this.formatTradingViewLink).join(', ')}
 
 🐅
 🐅
@@ -191,33 +213,80 @@ ${commonCoins.slice(0, 20).map(this.formatTradingViewLink).join(', ')}
       15,
     );
 
-    const risingCoins = await this.filterContinuousRisingCoins(
+    const oneHourRisingCoins = await this.filterContinuousRisingCoins(
       topValueCoins,
       oneHourCandlestickData,
       2,
     );
-    const greenCandlesCoins = await this.filterContinuousGreenCandles(
+    const oneHourGreenCandlesCoins = await this.filterContinuousGreenCandles(
       topValueCoins,
       oneHourCandlestickData,
       2,
     );
-    const risingGreenCandlesCoins = greenCandlesCoins.filter((coin) =>
-      risingCoins.includes(coin),
+    const oneHourRisingGreenCandlesCoins = oneHourGreenCandlesCoins.filter(
+      (coin) => oneHourRisingCoins.includes(coin),
     );
 
-    const fallingCoins = await this.filterContinuousFallingCoins(
+    const oneHourFallingCoins = await this.filterContinuousFallingCoins(
       topValueCoins,
       oneHourCandlestickData,
       2,
     );
-    const redCandlesCoins = await this.filterContinuousRedCandles(
+    const oneHourRedCandlesCoins = await this.filterContinuousRedCandles(
       topValueCoins,
       oneHourCandlestickData,
       2,
     );
-    const fallingRedCandlesCoins = redCandlesCoins.filter((coin) =>
-      fallingCoins.includes(coin),
+    const oneHourFallingRedCandlesCoins = oneHourRedCandlesCoins.filter(
+      (coin) => oneHourFallingCoins.includes(coin),
     );
+
+    const oneDayCandlestickData = await this.fetchAllCandlestickData(
+      topValueCoins,
+      '24h',
+    );
+
+    const oneDayGoldenCrossCoins = await this.findGoldenCrossCoins(
+      topValueCoins,
+      oneDayCandlestickData,
+      2,
+      7,
+      15,
+    );
+
+    const oneDayRisingCoins = await this.filterContinuousRisingCoins(
+      topValueCoins,
+      oneDayCandlestickData,
+      2,
+    );
+    const oneDayGreenCandlesCoins = await this.filterContinuousGreenCandles(
+      topValueCoins,
+      oneDayCandlestickData,
+      2,
+    );
+    const oneDayRisingAndGreenCandlesCoins = oneDayGreenCandlesCoins.filter(
+      (coin) => oneDayRisingCoins.includes(coin),
+    );
+    const oneDayBullishEngulfingCoins = await this.filterBullishEngulfing(
+      topValueCoins,
+      oneDayCandlestickData,
+    );
+
+    const bullishEngulfingCoins = await this.filterBullishEngulfing(
+      topValueCoins,
+      oneHourCandlestickData,
+    );
+
+    const coinsToSave = lodash.uniq([
+      ...oneHourGoldenCrossCoinsInTwo,
+      ...oneHourGoldenCrossCoinsInFive,
+      ...oneDayGoldenCrossCoins,
+      ...oneHourRisingGreenCandlesCoins,
+      ...oneDayRisingAndGreenCandlesCoins,
+      ...oneHourFallingRedCandlesCoins,
+      ...bullishEngulfingCoins,
+      ...oneDayBullishEngulfingCoins,
+    ]);
 
     const message = `
 🐅 Sustainability - Long Term
@@ -236,11 +305,23 @@ ${oneHourGoldenCrossCoinsInFive
   .map(this.formatTradingViewLink)
   .join(', ')}
 
-🟢 *지속 상승 + 지속 양봉* 🟢
-${risingGreenCandlesCoins.map(this.formatTradingViewLink).join(', ')}
+🌟 *1d Golden Cross in Two* 🌟
+${oneDayGoldenCrossCoins.map(this.formatTradingViewLink).join(', ')}
+
+🟢 *1h 지속 상승 + 지속 양봉* 🟢
+${oneHourRisingGreenCandlesCoins.map(this.formatTradingViewLink).join(', ')}
+
+🟢 *1h 지속 상승 + 지속 양봉* 🟢
+${oneDayRisingAndGreenCandlesCoins.map(this.formatTradingViewLink).join(', ')}
 
 🔴 *지속 하락 + 지속 음봉* 🔴
-${fallingRedCandlesCoins.map(this.formatTradingViewLink).join(', ')}
+${oneHourFallingRedCandlesCoins.map(this.formatTradingViewLink).join(', ')}
+
+🕯️ *1h Bullish Engulfing* 🕯️
+${bullishEngulfingCoins.map(this.formatTradingViewLink).join(', ')}
+
+🕯️ *1d Bullish Engulfing* 🕯️
+${oneDayBullishEngulfingCoins.map(this.formatTradingViewLink).join(', ')}
 
 🐅
 🐅

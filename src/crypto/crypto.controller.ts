@@ -143,6 +143,15 @@ export class CryptoController {
     return this.cryptoService.findGoldenCrossCoins(symbols, candlestickData);
   }
 
+  @Get('bullishEngulfingCoins')
+  getBullishEngulfingCoins(
+    @Param('symbols') symbols: string[],
+    @Param('candlestickData') candlestickData: any,
+  ) {
+    return this.cryptoService.filterBullishEngulfing(symbols, candlestickData);
+  }
+
+  // for private methods
   @Get('assets')
   async getAssets() {
     const results = await this.cryptoService.filterValuableAssets();
